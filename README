@@ -1,0 +1,24 @@
+
+The goal for this project is to be able to treat paths as a type of container for
+other paths.  For example, directories are containers for other directories and
+files, files are containers for data.
+
+It would be reasonable to extend this to say that, for example, .c files are
+containers for preprocessor directives, C LOC and C functions, and that C functions
+are containers for C LOC.
+
+Instead of working purely with the textual representation of a path, it would be
+nice to be able to treat it as an object.  For example, to iterate over all of 
+the contents of a directory:
+>> for i in DIRECTORY:
+       #Do something
+>> for common_path in DIR1 & DIR2:
+       #Do something
+
+* Need to support both absolute and relative paths
+** are '.' and '..' important to this?
+* Need to support all of the os(.path) functionality
+** http://docs.python.org/library/filesys.html
+** set operators to correspond to filecmp/dircmp classes?
+* Also support open() functionality?
+* Extend dircmp functionality with the stuff in difflib
