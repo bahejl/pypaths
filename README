@@ -22,3 +22,28 @@ the contents of a directory:
 ** set operators to correspond to filecmp/dircmp classes?
 * Also support open() functionality?
 * Extend dircmp functionality with the stuff in difflib
+* metadata
+
+* Functionality of relative paths:
+FileSystem relative path?
+More specific relative paths? eg CRelativePath?
+Support '..', '.', etc?
+>> p1 = get_fs_path(...)
+>> p2 = get_fs_path(p1, base=p1.parent)
+>> p2.children
+None
+>> p2.parent
+XXXPath(...)
+>> p2.parent.children
+None
+>> p2.parent.parent
+None
+>> p1 + p2
+OSError: ...
+>> p1 + p1.parent
+NotImplemented: ... # only relative paths can be added
+>> p3 = p1.parent.parent + p2
+XXXPath(...)
+>> p1 is p3
+True
+>> 

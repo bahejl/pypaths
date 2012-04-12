@@ -2,13 +2,6 @@
 The idea here is that directories are paths for other directories and
 files, files are paths for data (and it would be reasonable to extend
 the data into yet other paths/children based on the file type).
-
-* Need to support both absolute and relative
-** are '.' and '..' important to this?
-* Need to support all of the os(.path) functionality
-** http://docs.python.org/library/filesys.html
-** set operators to correspond to filecmp/dircmp classes?
-* Also support open() functionality?
 '''
 
 import abc
@@ -16,21 +9,43 @@ import os
 from types import NoneType
 
 
+# call_list = []
+# 
+# def string2path(str_path):
+#     for fn in call_list:
+#         try:
+#             return fn(str_path)
+#         except SomeSpecificError:
+#             pass
+# 
+# def fs_path(str_path):
+#     if os.path.isabs(str_path) and os.path.exists(str_path):
+#         if os.path.isdir(str_path):
+#             return Directory(*os.path.split(str_path))
+#         if os.path.isfile(str_path):
+#             return File(*os.path.split(str_path))
+#     raise SomeSpecificError
+# 
+# call_list.append(fs_path)
+
 class Path(object):
     '''
     Abstract base clase for data paths
     '''
     __metaclass__ = abc.ABCMeta
-    __slots__ = ('_parent', '_str', '_hierarchy', 'name', 'base')
+    __slots__ = ('_parent', '_str', '_hierarchy', 'name')
 
-    def __init__(self, parent, name, base=None):
+    def __init__(self, parent, name):
         self._parent = None
         self._str = None
         self._hierarchy = None
 
         self.parent = parent
         self.name = name
-        self.base = base
+
+    @abc.abstractproperty
+    def _factory(self):
+        pass
 
     @property
     def parent(self):
@@ -40,10 +55,9 @@ class Path(object):
 
     @parent.setter
     def parent(self, val):
-        if isinstance(val, (NoneType, basestring, Path)):
-            self._parent = val
-        else:
+        if not isinstance(val, (NoneType, basestring, Path)):
             raise ValueError("Expected string, path, or None")
+        self._parent = val
 
     @abc.abstractmethod
     def get_parent(self):
@@ -57,48 +71,25 @@ class Path(object):
         except AttributeError:
             ret_val = []
         ret_val.append(self)
-        try:
-            # TODO: an ordered set would do better here
-            new_rv = []
-            for i in ret_val:
-                for j in self.base.hierarchy():
-                    if i is j:
-                        break
-                else:
-                    new_rv.append(i)
-        except AttributeError:
-            #base is None...
-            new_rv = ret_val
-        self._hierarchy = new_rv
+        self._hierarchy = ret_val
         return self._hierarchy
 
     def __repr__(self):
-        if self.base is None:
-            base = ''
-        else:
-            base = ', ' + repr(self.base)
-
-        if self.parent is None:
-            parent = None
-        else:
+        if self.parent:
             parent = str(self.parent)
+        else:
+            parent = self.parent
 
-        return "{0.__class__.__name__}({1!r}, {0.name!r}{2})".format(
-                self, parent, base)
+        return "{0.__class__.__name__}({1!r}, {0.name!r})".format(
+                self, parent)
 
+    @abc.abstractmethod
     def __str__(self):
-        # if self._str is None:
-        #     if self.parent is None:
-        #         self._str = self.name
-        #     else:
-        try:
-            # return self.join(self.parent.relpath(self.base), self.name)
-            return self.join(*(i.name for i in self.hierarchy()))
-        except AttributeError:
-            return self.name
-                # return self.join(str(self.parent).replace(str(self.base), '', 1),
-                #         self.name)
-        # return self._str
+        pass
+        # try:
+        #     return self.join(*(i.name for i in self.hierarchy()))
+        # except AttributeError:
+        #     return self.name
 
     def raw_str(self):
         try:
@@ -114,13 +105,45 @@ class Path(object):
         # return rv
 
     def __sub__(self, other):
-        return str(self).replace(str(other), '', 1)
-    # def __sub__(self, other):
-    #     return type(self)(self.parent, self.name, other)
+        '''
+        >> p1 = '/abcd/efg/hi/p1'
+        >> p2 = 'hi/p1'
+        >> p1 - p2
+        '/abcd/efg'
+        >> p3 = '/abcd'
+        >> p1 - p3
+        'efg/hi/p1'
+        >> p3 - p1
+        None  # or '' or RelPath(None, ''), or something else?
+        >> p4 = 'gfe/hi/p1'
+        >> p1 - p4
+        '/abcd/efg/hi/p1'
+        >> p1 - '..'
+        '/abcd/efg/hi/p1' #TODO: should I instead do .../p1'.children()? NO!
+        >> p1 - '.'
+        '/abcd/efg/hi/p1'
+        '''
+        if not other:
+            return self
+        if isinstance(other, RelPath):
+            try:
+                return self._rsub(other)
+            except NotImplementedError:
+                return self
+        return self.relpath(other)
 
-    # def __isub__(self, other):
-    #     self.base = other
-    #     return self
+    def _rsub(self, other):
+        if self.name == other.name:
+            try:
+                return self.parent._rsub(other.parent)
+            except AttributeError:
+                return self.parent
+        if other.name in (None, '', '.', '..'):
+            return self
+        raise NotImplementedError
+
+    def __add__(self, other):
+        return self._factory(str(self), str(other))
 
     def __and__(self, other):
         for num, i in enumerate(zip(self.hierarchy(), other.hierarchy())):
@@ -135,7 +158,6 @@ class Path(object):
         else:
             # Everything is in common
             rv = i[0].relpath(self.base)
-
         return rv
 
     # def __and__(self, other):
@@ -146,11 +168,11 @@ class Path(object):
     def __hash__(self):
         return id(self)
 
-    @abc.abstractmethod
-    def join(self, *parts):
-        ''' used to join the parent to the path in its
-            textual representation '''
-        pass
+    # @abc.abstractmethod
+    # def join(self, *parts):
+    #     ''' used to join the parent to the path in its
+    #         textual representation '''
+    #     pass
 
     @abc.abstractmethod
     def __iter__(self):
@@ -159,49 +181,136 @@ class Path(object):
 
     @abc.abstractmethod
     def relpath(self, start):
+        '''return a relative path object
+        >> p1 = '/abc/de/fghi/jk.l'
+        >> p2 = '/abc/de'
+        >> p1.relpath(p2)
+        RelPath('fghi', 'jk.l')
+        >> p1.relpath(None)
+        ... #TODO: figure this out!
+        >> p1.relpath('')
+        ... #TODO: figure this out!
+        >> p1.relpath('.')
+        ... #TODO: figure this out!
+        >> p1.relpath('..')
+        ... #TODO: figure this out!
+        >> p2.relpath(p1)
+        RelPath('../..', '.')
+        >> p3 = '/foo/bar'
+        >> p1.relpath(p3)
+        RelPath('../../abc/de/fghi', 'jk.l')
+        >> p1.relpath(RelPath(***))
+        ... #TODO: figure this out!
+        '''
+        if isinstance(start, RelPath):
+            raise NotImplementedError
+
+
+class RelPath(Path):
+    '''
+    FileSystem relative path?
+    More specific relative paths? eg CRelativePath?
+    Support '..', '.', etc?
+    >> p1 = get_fs_path('/foo/bar/baz')
+    >> p2 = p1.relpath(p1.parent)
+    >> p2.children
+    None
+    >> p2.parent
+    XXXPath(...)
+    >> p2.parent.children
+    None
+    >> p2.parent.parent
+    None
+    >> p1 + p2
+    OSError: ...
+    >> p1 + p1.parent
+    NotImplemented: ... # adding requires at least one relative path
+    >> p3 = p1.parent.parent + p2
+    XXXPath(...)
+    >> p1 is p3
+    True
+    '''
+    def __iter__(self):
+        # Relative paths don't have children
+        yield None
+
+    def __add__(self, other):
+        # should this be in Path?
+        # if isinstance(other, RelPath):
+        # return other.__class__(other.join(self.parent), self.name)
         pass
+
+    def relpath(self, start):
+        # Doesn't make sense to get the relative path of a relative path.
+        # How would you know if they were the same?  Eg:
+        # >> p1 = 'foo/bar/baz'
+        # >> p2 = 'foo'
+        # How can we know that both 'foo' are the same thing?
+        raise NotImplementedError
 
 
 FS_CACHE = {}
 def get_fs_path(*args, **kwargs):
     '''FS Path Factory'''
-    full_path = os.path.abspath(os.path.join(*args))
-    parent, name = os.path.split(full_path)
-    if os.path.isdir(full_path):
-        cont = Directory
-    elif os.path.isfile(full_path):
-        cont = File
-    else:
+    full_path = os.path.join(*args)
+    if not full_path:
         return None
+    if os.path.isdir(full_path):
+        path = Directory
+    elif os.path.isfile(full_path):
+        path = File
+    elif not os.path.isabs(full_path):
+        # don't cache relative paths!
+        parent, name = os.path.split(full_path)
+        return RelFSPath(parent, name, **kwargs)
+    else:
+        # TODO: return full_path?  None?
+        return None
+    full_path = os.path.abspath(full_path)
+    parent, name = os.path.split(full_path)
     if name == '':
         parent, name = None, parent
+
     return FS_CACHE.setdefault(full_path,
-            cont(parent, name, **kwargs))
+            path(parent, name, **kwargs))
 
 
 class FSPath(Path):
-    def join(self, *parts):
-        return os.path.join(*parts)
+    # def join(self, *parts):
+    #     # TODO: finish this... only problem is use in __str__
+    #     # return self._factory(str(self.parent), self.name, *parts)
+    #     return os.path.join(*parts)
+
+    _factory = staticmethod(get_fs_path)
+
+    def __str__(self):
+        if self.parent:
+            return os.path.join(str(self.parent), self.name)
+        return self.name
 
     def relpath(self, start):
+        rv = super(FSPath, self).relpath(start)
+        if isinstance(rv, RelPath):
+            return rv
         if start is None:
-            return str(self)
-        try:
-            return os.path.relpath(str(self), str(start))
-        except ValueError:
-            return str(self).replace(str(start), '', 1)
+            return self
+        # Don't use self._factory here, or it would find the dir and convert it
+        # to an absolute path
+        parent, head = os.path.split(os.path.relpath(str(self), str(start)))
+        return RelFSPath(parent, head)
 
     def get_parent(self):
         if isinstance(self._parent, basestring):
-            self._parent = get_fs_path(self._parent)
+            self._parent = self._factory(self._parent)
         if self._parent is self:
             self._parent = None
         return self._parent
 
+
 class Directory(FSPath):
     def __iter__(self):
-        for sub in os.listdir(self.raw_str()):
-            yield get_fs_path(self.raw_str(), sub)
+        for sub in os.listdir(str(self)):
+            yield self + sub
 
 
 # TODO: add a hook list based on file extensions, to allow customizing what
@@ -209,38 +318,42 @@ class Directory(FSPath):
 
 class File(FSPath):
     def __iter__(self):
-        # return (i for i in tuple())
-        with open(self.raw_str()) as in_file:
+        with open(str(self)) as in_file:
             for line in in_file:
                 yield line
 
-class RelPath(FSPath):
-    def to_abs(self):
-        pass
 
+class RelFSPath(FSPath, RelPath):
+    def get_parent(self):
+        if isinstance(self._parent, basestring) and self._parent:
+            p_parent, p_name = os.path.split(self._parent)
+            if not p_parent:
+                p_parent = None
+            self._parent = self.__class__(p_parent, p_name)
+        return self._parent
 
-def cmppath(p1, p2, cutoff=0.6):
-    pass
-
-def cmpchildren(p1):
-    pass
-
-def bestmatch(p1, possibilities, cutoff):
-    if not n >  0:
-        raise ValueError("n must be > 0: %r" % (n,))
-    if not 0.0 <= cutoff <= 1.0:
-        raise ValueError("cutoff must be in [0.0, 1.0]: %r" % (cutoff,))
-    result = []
-    for p2 in possibilities:
-        ratio =cmppath(p1, p2)
-        if ratio >= cutoff:
-            ratio += cmpchildren(p1, p2)
-            ratio /= 2
-            if ratio >= cutoff:
-                result.append((ratio, p2))
-            
-    # Move the best scorers to head of list
-    result = heapq.nlargest(1, result)
-    # Strip scores for the best n matches
-    return result[0][1]
+# def cmppath(p1, p2, cutoff=0.6):
+#     pass
+# 
+# def cmpchildren(p1):
+#     pass
+# 
+# def bestmatch(p1, possibilities, cutoff):
+#     if not n >  0:
+#         raise ValueError("n must be > 0: %r" % (n,))
+#     if not 0.0 <= cutoff <= 1.0:
+#         raise ValueError("cutoff must be in [0.0, 1.0]: %r" % (cutoff,))
+#     result = []
+#     for p2 in possibilities:
+#         ratio =cmppath(p1, p2)
+#         if ratio >= cutoff:
+#             ratio += cmpchildren(p1, p2)
+#             ratio /= 2
+#             if ratio >= cutoff:
+#                 result.append((ratio, p2))
+#             
+#     # Move the best scorers to head of list
+#     result = heapq.nlargest(1, result)
+#     # Strip scores for the best n matches
+#     return result[0][1]
 
