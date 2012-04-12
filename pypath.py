@@ -276,11 +276,6 @@ def get_fs_path(*args, **kwargs):
 
 
 class FSPath(Path):
-    # def join(self, *parts):
-    #     # TODO: finish this... only problem is use in __str__
-    #     # return self._factory(str(self.parent), self.name, *parts)
-    #     return os.path.join(*parts)
-
     _factory = staticmethod(get_fs_path)
 
     def __str__(self):
@@ -294,10 +289,11 @@ class FSPath(Path):
             return rv
         if start is None:
             return self
+        return RelFSPath._factory(str(self), start=str(start))
         # Don't use self._factory here, or it would find the dir and convert it
         # to an absolute path
-        parent, head = os.path.split(os.path.relpath(str(self), str(start)))
-        return RelFSPath(parent, head)
+        # parent, head = os.path.split(os.path.relpath(str(self), str(start)))
+        # return RelFSPath(parent, head)
 
     def get_parent(self):
         if isinstance(self._parent, basestring):
@@ -324,13 +320,24 @@ class File(FSPath):
 
 
 class RelFSPath(FSPath, RelPath):
-    def get_parent(self):
-        if isinstance(self._parent, basestring) and self._parent:
-            p_parent, p_name = os.path.split(self._parent)
-            if not p_parent:
-                p_parent = None
-            self._parent = self.__class__(p_parent, p_name)
-        return self._parent
+    @staticmethod
+    def _factory(*path, **kwargs):
+        #TODO: generalize this and move it to RelPath
+        path = os.path.join(*path)
+        if kwargs.get('start', ''):
+            path = os.path.relpath(path, kwargs['start'])
+        if not path:
+            return None
+        parent, name = os.path.split(path)
+        return RelFSPath(parent, name)
+
+    # def get_parent(self):
+    #     if isinstance(self._parent, basestring) and self._parent:
+    #         p_parent, p_name = os.path.split(self._parent)
+    #         if not p_parent:
+    #             p_parent = None
+    #         self._parent = self.__class__(p_parent, p_name)
+    #     return self._parent
 
 # def cmppath(p1, p2, cutoff=0.6):
 #     pass
