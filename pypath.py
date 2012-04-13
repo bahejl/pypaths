@@ -4,6 +4,20 @@ files, files are paths for data (and it would be reasonable to extend
 the data into yet other paths/children based on the file type).
 '''
 
+#TODO: many instances check for isinstance(..., RelPath).  Because of this,
+#       strings passed in are being interpreted automatically as absolute
+#       paths, instead of relative.  Is this a problem?  I don't know...  Eg:
+# >> os.getcwd()
+# '/a/b'
+# >> p1 = Directory('/a/b/c/d', 'e')
+# >> p1 + '..'
+#### if default is to interpret strings as relative paths first:
+#   Directory('/a/b/c', 'd')
+#### if default is to interpret strings as absolute:
+#   Directory('/a/b/c/d/e', 'a')
+# I think I prefer to assume relative paths...
+
+
 import abc
 import os
 from types import NoneType
@@ -104,6 +118,8 @@ class Path(object):
         #     rv = cmp(self.name, other.name)
         # return rv
 
+    #TODO: support len(Path) calls?
+
     def __sub__(self, other):
         '''
         >> p1 = '/abcd/efg/hi/p1'
@@ -119,9 +135,11 @@ class Path(object):
         >> p1 - p4
         '/abcd/efg/hi/p1'
         >> p1 - '..'
-        '/abcd/efg/hi/p1' #TODO: should I instead do .../p1'.children()? NO!
+        '/abcd/efg/hi/p1'
         >> p1 - '.'
         '/abcd/efg/hi/p1'
+        >> p1 - 1  #TODO: should I implement this?
+        '/abcd/efg/hi'
         '''
         if not other:
             return self
@@ -129,7 +147,10 @@ class Path(object):
             try:
                 return self._rsub(other)
             except NotImplementedError:
-                return self
+                try:
+                    return self._lsub(other):
+                except NotImplementedError:
+                    return self
         return self.relpath(other)
 
     def _rsub(self, other):
@@ -142,22 +163,33 @@ class Path(object):
             return self
         raise NotImplementedError
 
+    def _lsub(self, other):
+        if self.hierarchy()[0] == other.hierarchy()[0]:
+            try:
+                return self.parent._lsub(other.parent)
+            except AttributeError:
+                return self.parent
+        if other.name in (None, '', '.', '..'):
+            return self
+        raise NotImplementedError
+
     def __add__(self, other):
         return self._factory(str(self), str(other))
 
     def __and__(self, other):
         for num, i in enumerate(zip(self.hierarchy(), other.hierarchy())):
             #TODO: use '==' (relative) or 'is' (absolute)?...
-            if i[0].relpath(self.base) != i[1].relpath(other.base):
+            # if i[0].relpath(self.base) != i[1].relpath(other.base):
+            if i[0] != i[1]:
                 if num == 0:
                     # There are no common elements in the hierarchy
                     rv = ''
                 else:
-                    rv = i[0].parent.relpath(self.base)
+                    rv = i[0].parent
                 break
         else:
             # Everything is in common
-            rv = i[0].relpath(self.base)
+            rv = i[0]
         return rv
 
     # def __and__(self, other):
@@ -259,13 +291,13 @@ def get_fs_path(*args, **kwargs):
         path = Directory
     elif os.path.isfile(full_path):
         path = File
-    elif not os.path.isabs(full_path):
+    # elif not os.path.isabs(full_path):
+    else:
         # don't cache relative paths!
         parent, name = os.path.split(full_path)
         return RelFSPath(parent, name, **kwargs)
-    else:
         # TODO: return full_path?  None?
-        return None
+        # return None
     full_path = os.path.abspath(full_path)
     parent, name = os.path.split(full_path)
     if name == '':
@@ -319,25 +351,23 @@ class File(FSPath):
                 yield line
 
 
-class RelFSPath(FSPath, RelPath):
-    @staticmethod
-    def _factory(*path, **kwargs):
-        #TODO: generalize this and move it to RelPath
-        path = os.path.join(*path)
-        if kwargs.get('start', ''):
-            path = os.path.relpath(path, kwargs['start'])
-        if not path:
-            return None
-        parent, name = os.path.split(path)
-        return RelFSPath(parent, name)
+def relpath(*paths, **kwargs):
+    #TODO: generalize this and move it to RelPath
+    path = os.path.join(*tuple(str(i) for i in paths))
+    if kwargs.get('start', ''):
+        path = os.path.relpath(path, str(kwargs['start']))
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return get_fs_path(path)
+    parent, name = os.path.split(path)
+    if name == '':
+        parent, name = None, parent
+    return RelFSPath(parent, name)
 
-    # def get_parent(self):
-    #     if isinstance(self._parent, basestring) and self._parent:
-    #         p_parent, p_name = os.path.split(self._parent)
-    #         if not p_parent:
-    #             p_parent = None
-    #         self._parent = self.__class__(p_parent, p_name)
-    #     return self._parent
+class RelFSPath(FSPath, RelPath):
+    _factory = staticmethod(relpath)
+
 
 # def cmppath(p1, p2, cutoff=0.6):
 #     pass
