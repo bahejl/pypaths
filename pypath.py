@@ -2,6 +2,18 @@
 The idea here is that directories are paths for other directories and
 files, files are paths for data (and it would be reasonable to extend
 the data into yet other paths/children based on the file type).
+
+Comparison to existing (failed) path modules:
+    PathModule -- http://wiki.python.org/moin/PathModule
+    AlternativePathModule -- http://wiki.python.org/moin/AlternativePathModule
+These modules tend to focus on th
+
+Part of the difficulty is that we are generally dealing with two things:
+    * The textual representation of where an object can be found (path)
+    * The object itself.
+I think that these concepts should be separated, so that manipulations on the
+object are distinct from manipulations on the path that happens to resolve to
+that object.
 '''
 
 #TODO: many instances check for isinstance(..., RelPath).  Because of this,
